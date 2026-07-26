@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: myapp-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-net
+
+  python-app:
+    image: myapp-v2:latest
+    container_name: myapp-python
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      DB_HOST: 192.168.31.244
+      DB_PORT: 3306
+      DB_USER: container_user
+      DB_PASSWORD: YourPass123!
+      DB_NAME: myapp
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_FILE_PATH: /logs/myapp.log
+      CPU_THRESHOLD: 80
+    volumes:
+      - /var/log:/logs:ro   # 将宿主机日志目录挂载到容器（只读）
+    networks:
+      - app-net
+
+networks:
+  app-net:
+environment:
+  - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+  - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
+  - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
