@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 智能助手</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f0f2f5; }
+        .chat-container {
+            max-width: 700px;
+            margin: 30px auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .chat-header {
+            background: #2c3e50;
+            color: white;
+            padding: 16px 24px;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        .chat-box {
+            height: 400px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #fafafa;
+        }
+        .message {
+            margin-bottom: 15px;
+            max-width: 80%;
+            clear: both;
+        }
+        .message.user {
+            float: right;
+            background: #007bff;
+            color: white;
+            border-radius: 18px 18px 0 18px;
+            padding: 10px 16px;
+        }
+        .message.assistant {
+            float: left;
+            background: #e9ecef;
+            color: #212529;
+            border-radius: 18px 18px 18px 0;
+            padding: 10px 16px;
+        }
+        .message .time {
+            font-size: 0.7rem;
+            color: #6c757d;
+            margin-top: 4px;
+            text-align: right;
+        }
+        .chat-input {
+            padding: 16px 20px;
+            background: white;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            gap: 10px;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #ced4da;
+            border-radius: 30px;
+            outline: none;
+        }
+        .chat-input input:focus {
+            border-color: #007bff;
+        }
+        .chat-input button {
+            padding: 10px 24px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .chat-input button:hover {
+            background: #0056b3;
+        }
+        .footer {
+            text-align: center;
+            padding: 10px;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .clear-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 20px;
+            float: right;
+            font-size: 0.8rem;
+        }
+        .clear-btn:hover {
+            background: #c82333;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            🤖 AI 智能助手
+            <button id="clearBtn" class="clear-btn">清除记忆</button>
+        </div>
+        <div class="chat-box" id="chatBox">
+            <div class="message assistant">
+                你好！我是你的运维助手，有什么可以帮你的吗？
+            </div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="userInput" placeholder="输入你的问题..." />
+            <button id="sendBtn">发送</button>
+        </div>
+        <div class="footer">💡 支持多轮对话，记住上下文</div>
+    </div>
+
+    <script>
+        const chatBox = document.getElementById('chatBox');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+
+        // 生成随机会话ID (存储在 localStorage)
+        let sessionId = localStorage.getItem('sessionId');
+        if (!sessionId) {
+            sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('sessionId', sessionId);
+        }
+
+        function appendMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerText = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const prompt = userInput.value.trim();
+            if (!prompt) return;
+            userInput.value = '';
+            appendMessage('user', prompt);
+
+            // 显示加载中
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.innerText = '思考中...';
+            loadingDiv.id = 'loading';
+            chatBox.appendChild(loadingDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const resp = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        session_id: sessionId
+                    })
+                });
+                const data = await resp.json();
+                document.getElementById('loading').remove();
+                if (data.code === 0) {
+                    appendMessage('assistant', data.data);
+                } else {
+                    appendMessage('assistant', '❌ ' + data.msg);
+                }
+            } catch (e) {
+                document.getElementById('loading').remove();
+                appendMessage('assistant', '❌ 网络异常，请稍后重试');
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        clearBtn.addEventListener('click', async () => {
+            if (!confirm('确定清除对话历史吗？')) return;
+            try {
+                await fetch('/api/chat/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+                chatBox.innerHTML = '';
+                appendMessage('assistant', '记忆已清除，重新开始吧！');
+            } catch (e) {
+                alert('清除失败，请重试');
+            }
+        });
+
+        // 页面加载时滚动到底部
+        chatBox.scrollTop = chatBox.scrollHeight;
+    </script>
+</body>
+</html>

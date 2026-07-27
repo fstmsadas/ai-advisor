@@ -7,38 +7,28 @@ from config import config
 client = openai.OpenAI(
     api_key=config.DEEPSEEK_API_KEY,
     base_url=config.DEEPSEEK_BASE_URL,
-    timeout=30.0,          # 请求超时
-    max_retries=2          # 内置重试
+    timeout=30.0,
+    max_retries=2
 )
 
+# ---------------------- 单轮对话（原有，保留） ----------------------
 def generate_response(prompt: str, temperature: float = 0.7, system_prompt: str = None) -> str:
-    """
-    调用 DeepSeek API，支持缓存和 system prompt
-    :param prompt: 用户输入
-    :param temperature: 0~1，控制随机性
-    :param system_prompt: 系统提示词，默认为通用运维顾问
-    :return: AI 回复内容
-    """
-    # 默认系统提示（可覆盖）
     if system_prompt is None:
-        system_prompt = (
-            "你是一个专业的运维顾问，擅长分析系统指标并提供优化建议。"
-            "请给出具体、可操作的建议，并优先考虑安全性和稳定性。"
-        )
+        system_prompt = "你是一个专业的运维顾问，擅长分析系统指标并提供优化建议。请给出具体、可操作的建议，并优先考虑安全性和稳定性。"
 
-    # 生成缓存键（包含 prompt, temp 和 system_prompt 摘要）
     cache_key = get_cache_key("ai", {
         "prompt": prompt,
         "temp": temperature,
-        "system": system_prompt[:50]  # 摘要避免过长
+        "system": system_prompt[:50]
     })
 
-    # 尝试读取缓存
-    cached = cache_get(cache_key)
-    if cached:
-        return cached
+    try:
+        cached = cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception:
+        pass  # Redis 不可用时跳过缓存
 
-    # 调用 DeepSeek API
     try:
         response = client.chat.completions.create(
             model=config.DEEPSEEK_MODEL,
@@ -51,16 +41,33 @@ def generate_response(prompt: str, temperature: float = 0.7, system_prompt: str 
         )
         reply = response.choices[0].message.content.strip()
     except Exception as e:
-        # 记录异常，返回错误信息（外部重试机制会捕获）
         raise RuntimeError(f"DeepSeek API 调用失败: {e}")
 
-    # 根据 temperature 设置缓存 TTL
-    if temperature < 0.3:
-        ttl = 86400   # 24h
-    elif temperature > 0.7:
-        ttl = 300     # 5min
-    else:
-        ttl = 3600    # 1h
+    try:
+        ttl = 86400 if temperature < 0.3 else (300 if temperature > 0.7 else 3600)
+        cache_set(cache_key, reply, ttl)
+    except Exception:
+        pass
 
-    cache_set(cache_key, reply, ttl)
     return reply
+
+# ---------------------- 多轮对话（新增） ----------------------
+def generate_chat(messages: list, temperature: float = 0.7) -> str:
+    """
+    支持多轮对话，messages 格式：[{"role": "user", "content": "..."}, ...]
+    此函数不使用缓存，因为对话历史动态变化。
+    """
+    system_prompt = "你是一个专业的运维顾问，擅长系统优化和故障排查。请基于对话历史回答问题。"
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+    try:
+        response = client.chat.completions.create(
+            model=config.DEEPSEEK_MODEL,
+            messages=full_messages,
+            temperature=temperature,
+            max_tokens=1024,
+        )
+        reply = response.choices[0].message.content.strip()
+        return reply
+    except Exception as e:
+        raise RuntimeError(f"DeepSeek API 调用失败: {e}")
