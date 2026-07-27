@@ -11,7 +11,10 @@ CORS(app)
 # ---------- 日志 ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+# ---------- 首页 ----------
+@app.route('/')
+def index():
+    return render_template('index.html')
 # ---------- 健康检查 ----------
 @app.route('/health', methods=['GET'])
 def health():
@@ -21,7 +24,7 @@ def health():
         "redis_host": config.REDIS_HOST
     })
 
-# ---------- 用户分页查询 (已有) ----------
+# ---------- 用户分页查询 ----------
 @app.route('/api/users', methods=['GET'])
 def get_users():
     try:
@@ -71,7 +74,7 @@ def get_users():
         logger.error(f"查询异常: {e}")
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ---------- AI 单轮生成 (已有) ----------
+# ---------- AI 单轮生成 ----------
 @app.route('/api/ai', methods=['GET'])
 def ai_generate():
     prompt = request.args.get('prompt')
@@ -85,12 +88,11 @@ def ai_generate():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== 新增功能 ====================
+# ==================== 监控与聊天 ====================
 
 # ---------- 监控数据表格页面 ----------
 @app.route('/monitor')
 def monitor():
-    """展示系统监控数据表格"""
     try:
         sql = """
             SELECT id, cpu_percent, memory_percent, disk_usage, load_avg, timestamp
@@ -142,6 +144,44 @@ def clear_chat():
     from cache import clear_chat_history
     clear_chat_history(session_id)
     return jsonify({"code": 0, "msg": "历史已清除"})
+
+# ==================== AI 建议历史 ====================
+
+# ---------- AI 建议历史页面 ----------
+@app.route('/advice')
+def advice_list():
+    try:
+        sql = """
+            SELECT id, advice_text, cpu_percent, created_at
+            FROM ai_advice
+            ORDER BY id DESC
+            LIMIT 50
+        """
+        rows = execute_query(sql)
+        columns = ['id', 'advice_text', 'cpu_percent', 'created_at']
+        advices = [dict(zip(columns, row)) for row in rows]
+        return render_template('advice.html', advices=advices)
+    except Exception as e:
+        return f"<h1>错误</h1><p>{e}</p>", 500
+
+# ---------- AI 建议历史 API ----------
+@app.route('/api/advice', methods=['GET'])
+def api_advice():
+    limit = request.args.get('limit', default=50, type=int)
+    limit = min(limit, 200)  # 限制最大条数
+    try:
+        sql = """
+            SELECT id, advice_text, cpu_percent, created_at
+            FROM ai_advice
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        rows = execute_query(sql, (limit,))
+        columns = ['id', 'advice_text', 'cpu_percent', 'created_at']
+        data = [dict(zip(columns, row)) for row in rows]
+        return jsonify({"code": 0, "data": data})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ---------- 启动 ----------
 if __name__ == '__main__':

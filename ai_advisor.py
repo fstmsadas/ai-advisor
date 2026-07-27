@@ -1,18 +1,12 @@
 import time
 from ai import generate_response
-from system_metrics import get_system_metrics, get_top_processes, is_cpu_high
+from system_metrics import get_system_metrics, get_top_processes
+from db import insert_ai_advice
 from utils import setup_logger
 
 logger = setup_logger('ai_advisor')
 
 def get_optimization_advice(metrics, top_procs, retries=3):
-    """
-    根据系统指标和进程信息，调用 AI 生成优化建议
-    :param metrics: 系统指标字典
-    :param top_procs: top 进程列表
-    :param retries: 重试次数
-    :return: AI 建议字符串
-    """
     prompt = f"""
     系统当前状态：
     - CPU 使用率: {metrics['cpu_percent']}%
@@ -28,16 +22,21 @@ def get_optimization_advice(metrics, top_procs, retries=3):
             return advice
         except Exception as e:
             logger.error(f"AI 调用失败 (尝试 {attempt+1}/{retries}): {e}")
-            time.sleep(2 ** attempt)  # 指数退避
+            time.sleep(2 ** attempt)
     return "AI 服务暂时不可用，请稍后重试。"
 
 def check_and_advise(threshold=80):
-    """检查 CPU 是否超阈值，若超出则生成建议并返回，否则返回 None"""
+    """此函数保留用于命令行手动调用，仍会重新采集"""
     metrics = get_system_metrics()
     if metrics['cpu_percent'] > threshold:
         top_procs = get_top_processes(5)
         advice = get_optimization_advice(metrics, top_procs)
-        logger.info(f"CPU 超阈值建议: {advice}")
+        if advice:
+            try:
+                advice_id = insert_ai_advice(advice, metrics, top_procs)
+                logger.info(f"AI 建议已入库 (ID={advice_id})")
+            except Exception as e:
+                logger.error(f"入库失败: {e}")
         return advice
     else:
         logger.info("CPU 正常，无需建议")

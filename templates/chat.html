@@ -21,6 +21,26 @@
             padding: 16px 24px;
             font-size: 1.2rem;
             font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-header .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .chat-header .header-left a {
+            color: white;
+            text-decoration: none;
+            font-size: 1rem;
+            background: rgba(255,255,255,0.15);
+            padding: 4px 12px;
+            border-radius: 20px;
+            transition: background 0.2s;
+        }
+        .chat-header .header-left a:hover {
+            background: rgba(255,255,255,0.3);
         }
         .chat-box {
             height: 400px;
@@ -94,8 +114,8 @@
             border: none;
             padding: 4px 12px;
             border-radius: 20px;
-            float: right;
             font-size: 0.8rem;
+            cursor: pointer;
         }
         .clear-btn:hover {
             background: #c82333;
@@ -105,7 +125,10 @@
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            🤖 AI 智能助手
+            <div class="header-left">
+                <a href="/" title="返回首页">🏠 首页</a>
+                <span>🤖 AI 智能助手</span>
+            </div>
             <button id="clearBtn" class="clear-btn">清除记忆</button>
         </div>
         <div class="chat-box" id="chatBox">
@@ -126,7 +149,6 @@
         const sendBtn = document.getElementById('sendBtn');
         const clearBtn = document.getElementById('clearBtn');
 
-        // 生成随机会话ID (存储在 localStorage)
         let sessionId = localStorage.getItem('sessionId');
         if (!sessionId) {
             sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -147,7 +169,6 @@
             userInput.value = '';
             appendMessage('user', prompt);
 
-            // 显示加载中
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'message assistant';
             loadingDiv.innerText = '思考中...';
@@ -197,7 +218,6 @@
             }
         });
 
-        // 页面加载时滚动到底部
         chatBox.scrollTop = chatBox.scrollHeight;
     </script>
 </body>

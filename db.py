@@ -1,4 +1,5 @@
 import pymysql
+import json  # 新增
 from config import config
 
 def get_connection():
@@ -22,7 +23,6 @@ def execute_query(sql, params=None):
         conn.close()
 
 def execute_insert(sql, params=None):
-    """执行插入，返回自增 ID（若表有自增列）"""
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -58,4 +58,21 @@ def insert_log_stats(stats_dict):
         stats_dict['warning_count'],
         stats_dict['info_count'],
         stats_dict['log_file']
+    ))
+
+# ==================== 新增：插入 AI 建议 ====================
+def insert_ai_advice(advice_text, metrics, top_procs):
+    sql = """
+        INSERT INTO ai_advice 
+        (advice_text, cpu_percent, memory_percent, disk_usage, load_avg, top_processes)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
+    top_json = json.dumps(top_procs, ensure_ascii=False)
+    return execute_insert(sql, (
+        advice_text,
+        metrics['cpu_percent'],
+        metrics['memory_percent'],
+        metrics['disk_usage'],
+        metrics['load_avg'],
+        top_json
     ))

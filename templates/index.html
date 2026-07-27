@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>运维监控平台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .card {
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            height: 100%;
+        }
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+        .card-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+        .card-title {
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .card-text {
+            color: #6c757d;
+            font-size: 0.95rem;
+        }
+        .btn-custom {
+            border-radius: 30px;
+            padding: 10px 30px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-custom:hover {
+            transform: scale(1.05);
+        }
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .header-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .header-subtitle {
+            color: #6c757d;
+            margin-bottom: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="text-center">
+            <h1 class="header-title">🛠️ 运维监控平台</h1>
+            <p class="header-subtitle">智能运维 · 实时监控 · AI 辅助决策</p>
+        </div>
+
+        <div class="row g-4">
+            <!-- 卡片 1：系统监控 -->
+            <div class="col-md-4">
+                <div class="card p-4 text-center" onclick="location.href='/monitor'">
+                    <i class="bi bi-graph-up-arrow card-icon text-primary"></i>
+                    <h5 class="card-title">📊 系统监控</h5>
+                    <p class="card-text">实时查看 CPU、内存、磁盘等系统指标，快速定位资源瓶颈。</p>
+                    <a href="/monitor" class="btn btn-primary btn-custom">进入监控</a>
+                </div>
+            </div>
+
+            <!-- 卡片 2：AI 建议 -->
+            <div class="col-md-4">
+                <div class="card p-4 text-center" onclick="location.href='/advice'">
+                    <i class="bi bi-lightbulb card-icon text-warning"></i>
+                    <h5 class="card-title">💡 AI 优化建议</h5>
+                    <p class="card-text">查看历史 AI 生成的智能优化建议，辅助运维决策。</p>
+                    <a href="/advice" class="btn btn-warning btn-custom text-white">查看建议</a>
+                </div>
+            </div>
+
+            <!-- 卡片 3：AI 助手 -->
+            <div class="col-md-4">
+                <div class="card p-4 text-center" onclick="location.href='/chat'">
+                    <i class="bi bi-robot card-icon text-success"></i>
+                    <h5 class="card-title">🤖 运维 AI 助手</h5>
+                    <p class="card-text">与 AI 助手多轮对话，获取实时问题诊断和操作建议。</p>
+                    <a href="/chat" class="btn btn-success btn-custom">开始聊天</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>© 2026 运维监控平台 · 由 DeepSeek AI 驱动</p>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS (用于交互) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 可选：使整张卡片可点击（onclick 已实现） -->
+</body>
+</html>
