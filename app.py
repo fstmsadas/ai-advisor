@@ -3,18 +3,23 @@ from flask_cors import CORS
 from db import execute_query
 from config import config
 import logging
+import json
+import time
+from datetime import datetime
+from cache import cache_get, cache_set
+from ai import generate_response
 
-# ---------- 初始化 ----------
 app = Flask(__name__)
 CORS(app)
 
-# ---------- 日志 ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 # ---------- 首页 ----------
 @app.route('/')
 def index():
     return render_template('index.html')
+
 # ---------- 健康检查 ----------
 @app.route('/health', methods=['GET'])
 def health():
@@ -82,13 +87,10 @@ def ai_generate():
         return jsonify({"code": 400, "msg": "缺少 prompt 参数"}), 400
     try:
         temperature = float(request.args.get('temperature', 0.7))
-        from ai import generate_response
         reply = generate_response(prompt, temperature)
         return jsonify({"code": 0, "data": reply})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
-
-# ==================== 监控与聊天 ====================
 
 # ---------- 监控数据表格页面 ----------
 @app.route('/monitor')
@@ -145,8 +147,6 @@ def clear_chat():
     clear_chat_history(session_id)
     return jsonify({"code": 0, "msg": "历史已清除"})
 
-# ==================== AI 建议历史 ====================
-
 # ---------- AI 建议历史页面 ----------
 @app.route('/advice')
 def advice_list():
@@ -168,7 +168,7 @@ def advice_list():
 @app.route('/api/advice', methods=['GET'])
 def api_advice():
     limit = request.args.get('limit', default=50, type=int)
-    limit = min(limit, 200)  # 限制最大条数
+    limit = min(limit, 200)
     try:
         sql = """
             SELECT id, advice_text, cpu_percent, created_at
@@ -181,6 +181,74 @@ def api_advice():
         data = [dict(zip(columns, row)) for row in rows]
         return jsonify({"code": 0, "data": data})
     except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+# ==================== AI 诊断功能 ====================
+@app.route('/api/diagnose', methods=['POST'])
+def api_diagnose():
+    """
+    AI 诊断接口：获取最新系统指标，调用 AI 生成诊断报告，并缓存结果。
+    缓存策略：基于指标值（四舍五入）和时间窗口（5分钟），避免频繁调用。
+    """
+    try:
+        # 1. 获取最新一条系统指标
+        sql = """
+            SELECT cpu_percent, memory_percent, disk_usage, load_avg, timestamp
+            FROM system_metrics
+            ORDER BY id DESC LIMIT 1
+        """
+        row = execute_query(sql)
+        if not row:
+            return jsonify({"code": 1, "msg": "暂无监控数据，请先采集指标"}), 200
+
+        cpu, mem, disk, load, ts = row[0]
+        # 将指标值四舍五入到整数，用于生成缓存键
+        cpu_key = round(cpu)
+        mem_key = round(mem)
+        disk_key = round(disk)
+
+        # 2. 生成缓存键（包含时间窗口：每5分钟为一个窗口）
+        now = datetime.now()
+        window = int(now.timestamp() // 300)  # 300秒为5分钟
+        cache_key = f"diagnose:{cpu_key}_{mem_key}_{disk_key}_{window}"
+
+        # 3. 尝试从缓存获取
+        cached = cache_get(cache_key)
+        if cached:
+            # 缓存命中，直接返回
+            return jsonify({
+                "code": 0,
+                "data": {
+                    "diagnosis": cached,
+                    "cached": True,
+                    "timestamp": now.isoformat()
+                }
+            })
+
+        # 4. 缓存未命中，调用 AI 生成诊断
+        prompt = f"""
+        根据以下系统指标，请进行专业诊断并提出优化建议：
+        - CPU 使用率: {cpu}%
+        - 内存使用率: {mem}%
+        - 磁盘使用率: {disk}%
+        - 系统负载: {load}
+        请分析当前系统是否存在性能瓶颈，给出具体可行的优化措施。
+        """
+        diagnosis = generate_response(prompt, temperature=0.3)
+
+        # 5. 存入缓存（TTL = 300秒）
+        cache_set(cache_key, diagnosis, ttl=300)
+
+        return jsonify({
+            "code": 0,
+            "data": {
+                "diagnosis": diagnosis,
+                "cached": False,
+                "timestamp": now.isoformat()
+            }
+        })
+    except Exception as e:
+        logger.error(f"AI 诊断失败: {e}", exc_info=True)
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ---------- 启动 ----------

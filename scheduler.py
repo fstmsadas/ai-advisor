@@ -81,7 +81,7 @@ def start_scheduler():
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
 
-    scheduler.add_job(job_analyze_log, CronTrigger(hour=2, minute=0), id='log_analysis')
+    scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
     logger.info("🕐 任务已添加: 每天凌晨2点分析日志 (北京时间)")
 
     logger.info("⏳ 立即执行一次采集（验证）...")
