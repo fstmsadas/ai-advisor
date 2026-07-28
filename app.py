@@ -186,12 +186,7 @@ def api_advice():
 # ==================== AI 诊断功能 ====================
 @app.route('/api/diagnose', methods=['POST'])
 def api_diagnose():
-    """
-    AI 诊断接口：获取最新系统指标，调用 AI 生成诊断报告，并缓存结果。
-    缓存策略：基于指标值（四舍五入）和时间窗口（5分钟），避免频繁调用。
-    """
     try:
-        # 1. 获取最新一条系统指标
         sql = """
             SELECT cpu_percent, memory_percent, disk_usage, load_avg, timestamp
             FROM system_metrics
@@ -202,20 +197,16 @@ def api_diagnose():
             return jsonify({"code": 1, "msg": "暂无监控数据，请先采集指标"}), 200
 
         cpu, mem, disk, load, ts = row[0]
-        # 将指标值四舍五入到整数，用于生成缓存键
         cpu_key = round(cpu)
         mem_key = round(mem)
         disk_key = round(disk)
 
-        # 2. 生成缓存键（包含时间窗口：每5分钟为一个窗口）
         now = datetime.now()
-        window = int(now.timestamp() // 300)  # 300秒为5分钟
+        window = int(now.timestamp() // 300)
         cache_key = f"diagnose:{cpu_key}_{mem_key}_{disk_key}_{window}"
 
-        # 3. 尝试从缓存获取
         cached = cache_get(cache_key)
         if cached:
-            # 缓存命中，直接返回
             return jsonify({
                 "code": 0,
                 "data": {
@@ -225,7 +216,6 @@ def api_diagnose():
                 }
             })
 
-        # 4. 缓存未命中，调用 AI 生成诊断
         prompt = f"""
         根据以下系统指标，请进行专业诊断并提出优化建议：
         - CPU 使用率: {cpu}%
@@ -236,7 +226,6 @@ def api_diagnose():
         """
         diagnosis = generate_response(prompt, temperature=0.3)
 
-        # 5. 存入缓存（TTL = 300秒）
         cache_set(cache_key, diagnosis, ttl=300)
 
         return jsonify({
@@ -249,6 +238,36 @@ def api_diagnose():
         })
     except Exception as e:
         logger.error(f"AI 诊断失败: {e}", exc_info=True)
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+# ==================== 日志分析页面与 API ====================
+@app.route('/logs')
+def logs():
+    try:
+        sql = """
+            SELECT id, log_date, total_lines, error_count, warning_count, info_count, log_file, created_at
+            FROM log_stats
+            ORDER BY id DESC
+            LIMIT 50
+        """
+        rows = execute_query(sql)
+        columns = ['id', 'log_date', 'total_lines', 'error_count', 'warning_count', 'info_count', 'log_file', 'created_at']
+        stats = [dict(zip(columns, row)) for row in rows]
+        return render_template('logs.html', stats=stats)
+    except Exception as e:
+        return f"<h1>错误</h1><p>{e}</p>", 500
+
+@app.route('/api/logs/analyze', methods=['POST'])
+def api_analyze_log():
+    """立即分析日志文件并入库，返回最新统计结果"""
+    try:
+        from log_analyzer import analyze_log_file, save_stats_to_db
+        from config import config
+        log_path = config.LOG_FILE_PATH
+        stats = analyze_log_file(log_path)
+        save_stats_to_db(stats)
+        return jsonify({"code": 0, "msg": "分析完成", "data": stats})
+    except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ---------- 启动 ----------
