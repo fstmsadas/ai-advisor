@@ -1,5 +1,6 @@
 import logging
 import sys
+from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from system_metrics import get_system_metrics, get_top_processes
@@ -30,19 +31,15 @@ def job_collect_metrics():
         inserted_id = insert_system_metrics(metrics)
         logger.info(f"✅ 指标已入库 (ID={inserted_id})")
 
-        # ========== CPU 超阈值触发 AI 建议 ==========
         cpu = metrics['cpu_percent']
         threshold = config.CPU_THRESHOLD
         if cpu > threshold:
             logger.warning(f"⚠️ CPU 使用率 {cpu}% 超过阈值 {threshold}%，正在获取 AI 优化建议...")
             try:
-                # 获取当前高 CPU 进程（同一时刻）
                 top_procs = get_top_processes(5)
-                # 直接调用 get_optimization_advice，传入已采集的 metrics 和 top_procs
                 advice = get_optimization_advice(metrics, top_procs)
                 if advice:
                     logger.info(f"💡 AI 优化建议: {advice}")
-                    # 入库
                     advice_id = insert_ai_advice(advice, metrics, top_procs)
                     logger.info(f"✅ AI 建议已存入数据库 (ID={advice_id})")
                 else:
@@ -51,8 +48,6 @@ def job_collect_metrics():
                 logger.error(f"AI 建议生成或入库失败: {e}", exc_info=True)
         else:
             logger.info(f"CPU 使用率 {cpu}% 正常（阈值 {threshold}%），无需建议")
-        # ============================================
-
     except Exception as e:
         logger.error(f"❌ 采集入库失败: {e}", exc_info=True)
     finally:
@@ -78,14 +73,18 @@ def start_scheduler():
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
+    # ---------- 每小时定时任务（整点后 5 分钟） ----------
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
 
+    # ---------- 每天 14:00 日志分析 ----------
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
-    logger.info("🕐 任务已添加: 每天凌晨2点分析日志 (北京时间)")
+    logger.info("🕐 任务已添加: 每天14:00分析日志 (北京时间)")
 
-    logger.info("⏳ 立即执行一次采集（验证）...")
-    job_collect_metrics()
+    # ---------- 新增：延迟 30 秒后执行一次采集（启动验证） ----------
+    first_run = datetime.now() + timedelta(seconds=30)
+    scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
+    logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")
 
     logger.info("✅ 调度器已配置，将按设定的北京时间定时执行任务")
     try:
