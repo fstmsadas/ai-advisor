@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU 趋势图</title>
+    <!-- 引入 ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        body {
+            background: #f5f7fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            font-weight: 300;
+        }
+        .chart-container {
+            height: 400px;
+            margin: 20px 0;
+        }
+        .info {
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .back-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 8px 20px;
+            background: #2c3e50;
+            color: white;
+            border-radius: 30px;
+            text-decoration: none;
+        }
+        .back-btn:hover {
+            background: #1a252f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 CPU 使用率趋势</h1>
+        <div id="cpuChart" class="chart-container"></div>
+        <div class="info">
+            <span id="updateTime">更新时间：--</span>
+            <span style="margin-left: 20px;">数据点：<span id="dataCount">0</span></span>
+        </div>
+        <div style="text-align: center;">
+            <a href="/" class="back-btn">🏠 返回首页</a>
+        </div>
+    </div>
+
+    <script>
+        // 初始化 ECharts
+        var chartDom = document.getElementById('cpuChart');
+        var myChart = echarts.init(chartDom);
+
+        // 图表配置
+        var option = {
+            title: { text: '实时 CPU 使用率 (%)', left: 'center' },
+            tooltip: { trigger: 'axis' },
+            xAxis: {
+                type: 'category',
+                boundaryGap: false,
+                data: []
+            },
+            yAxis: {
+                type: 'value',
+                min: 0,
+                max: 100,
+                axisLabel: { formatter: '{value}%' }
+            },
+            series: [{
+                name: 'CPU',
+                type: 'line',
+                smooth: true,
+                symbol: 'none',
+                lineStyle: { color: '#5470c6', width: 2 },
+                areaStyle: { color: 'rgba(84, 112, 198, 0.2)' },
+                data: []
+            }]
+        };
+        myChart.setOption(option);
+
+        // 轮询更新函数
+        function fetchData() {
+            fetch('/api/cpu_trend?limit=100')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.code !== 0) {
+                        console.error('数据错误:', data.msg);
+                        return;
+                    }
+                    var timestamps = data.data.timestamps;
+                    var values = data.data.values;
+
+                    // 更新图表
+                    myChart.setOption({
+                        xAxis: { data: timestamps },
+                        series: [{ data: values }]
+                    });
+
+                    // 更新信息
+                    document.getElementById('updateTime').textContent = '更新时间：' + new Date().toLocaleString();
+                    document.getElementById('dataCount').textContent = values.length;
+                })
+                .catch(err => {
+                    console.error('请求失败:', err);
+                });
+        }
+
+        // 立即加载一次
+        fetchData();
+
+        // 每5秒轮询一次
+        setInterval(fetchData, 5000);
+    </script>
+</body>
+</html>

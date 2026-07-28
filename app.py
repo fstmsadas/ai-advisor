@@ -259,7 +259,6 @@ def logs():
 
 @app.route('/api/logs/analyze', methods=['POST'])
 def api_analyze_log():
-    """立即分析日志文件并入库，返回最新统计结果"""
     try:
         from log_analyzer import analyze_log_file, save_stats_to_db
         from config import config
@@ -269,6 +268,34 @@ def api_analyze_log():
         return jsonify({"code": 0, "msg": "分析完成", "data": stats})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
+
+# ==================== CPU 趋势 ====================
+@app.route('/api/cpu_trend', methods=['GET'])
+def api_cpu_trend():
+    """返回最近 N 条 CPU 使用率数据（用于 ECharts 折线图）"""
+    limit = request.args.get('limit', default=100, type=int)
+    limit = min(limit, 500)
+    try:
+        sql = """
+            SELECT timestamp, cpu_percent
+            FROM system_metrics
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        rows = execute_query(sql, (limit,))
+        # 反转顺序使时间从旧到新
+        rows = rows[::-1]
+        data = {
+            "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
+            "values": [float(row[1]) for row in rows]
+        }
+        return jsonify({"code": 0, "data": data})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+@app.route('/trend')
+def trend():
+    return render_template('trend.html')
 
 # ---------- 启动 ----------
 if __name__ == '__main__':
