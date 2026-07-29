@@ -68,6 +68,23 @@
             color: #6c757d;
             margin-bottom: 40px;
         }
+        /* 自定义卡片宽度：每行6个，使用col-2 */
+        .col-card {
+            flex: 0 0 16.6667%;
+            max-width: 16.6667%;
+        }
+        @media (max-width: 992px) {
+            .col-card {
+                flex: 0 0 33.333%;
+                max-width: 33.333%;
+            }
+        }
+        @media (max-width: 576px) {
+            .col-card {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -77,10 +94,10 @@
             <p class="header-subtitle">智能运维 · 实时监控 · AI 辅助决策</p>
         </div>
 
-        <div class="row g-4">
+        <div class="row g-4 justify-content-center">
             <!-- 卡片 1：系统监控 -->
-            <div class="col-md-2-4">
-                <div class="card p-4 text-center" onclick="location.href='/monitor'">
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/monitor'">
                     <i class="bi bi-graph-up-arrow card-icon text-primary"></i>
                     <h5 class="card-title">📊 系统监控</h5>
                     <p class="card-text">实时查看 CPU、内存、磁盘等系统指标，快速定位资源瓶颈。</p>
@@ -89,8 +106,8 @@
             </div>
 
             <!-- 卡片 2：AI 建议 -->
-            <div class="col-md-2-4">
-                <div class="card p-4 text-center" onclick="location.href='/advice'">
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/advice'">
                     <i class="bi bi-lightbulb card-icon text-warning"></i>
                     <h5 class="card-title">💡 AI 优化建议</h5>
                     <p class="card-text">查看历史 AI 生成的智能优化建议，辅助运维决策。</p>
@@ -99,8 +116,8 @@
             </div>
 
             <!-- 卡片 3：AI 助手 -->
-            <div class="col-md-2-4">
-                <div class="card p-4 text-center" onclick="location.href='/chat'">
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/chat'">
                     <i class="bi bi-robot card-icon text-success"></i>
                     <h5 class="card-title">🤖 运维 AI 助手</h5>
                     <p class="card-text">与 AI 助手多轮对话，获取实时问题诊断和操作建议。</p>
@@ -109,8 +126,8 @@
             </div>
 
             <!-- 卡片 4：日志分析 -->
-            <div class="col-md-2-4">
-                <div class="card p-4 text-center" onclick="location.href='/logs'">
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/logs'">
                     <i class="bi bi-file-text card-icon text-secondary"></i>
                     <h5 class="card-title">📄 日志分析</h5>
                     <p class="card-text">查看日志统计结果，包括 ERROR/WARNING/INFO 数量。</p>
@@ -119,12 +136,22 @@
             </div>
 
             <!-- 卡片 5：CPU 趋势 -->
-            <div class="col-md-2-4">
-                <div class="card p-4 text-center" onclick="location.href='/trend'">
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/trend'">
                     <i class="bi bi-graph-up card-icon text-info"></i>
                     <h5 class="card-title">📈 CPU 趋势</h5>
                     <p class="card-text">查看 CPU 使用率实时趋势，支持自动刷新。</p>
                     <a href="/trend" class="btn btn-info btn-custom text-white">查看趋势</a>
+                </div>
+            </div>
+
+            <!-- 卡片 6：聚合监控（新增） -->
+            <div class="col-card">
+                <div class="card p-3 text-center" onclick="location.href='/dashboard'">
+                    <i class="bi bi-speedometer2 card-icon text-danger"></i>
+                    <h5 class="card-title">📊 聚合监控</h5>
+                    <p class="card-text">CPU、内存、磁盘、网络实时聚合仪表盘。</p>
+                    <a href="/dashboard" class="btn btn-danger btn-custom">进入仪表盘</a>
                 </div>
             </div>
         </div>

@@ -7,6 +7,10 @@ services:
       MYSQL_DATABASE: myapp
       MYSQL_USER: container_user
       MYSQL_PASSWORD: YourPass123!
+      TZ: Asia/Shanghai
+    command: --default-time-zone=+08:00
+    # ports:
+    #   - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -22,6 +26,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: myapp-redis
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

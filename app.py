@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from cache import cache_get, cache_set
 from ai import generate_response
+from system_metrics import collect_all_sync
 
 app = Flask(__name__)
 CORS(app)
@@ -272,7 +273,6 @@ def api_analyze_log():
 # ==================== CPU 趋势 ====================
 @app.route('/api/cpu_trend', methods=['GET'])
 def api_cpu_trend():
-    """返回最近 N 条 CPU 使用率数据（用于 ECharts 折线图）"""
     limit = request.args.get('limit', default=100, type=int)
     limit = min(limit, 500)
     try:
@@ -283,8 +283,7 @@ def api_cpu_trend():
             LIMIT %s
         """
         rows = execute_query(sql, (limit,))
-        # 反转顺序使时间从旧到新
-        rows = rows[::-1]
+        rows = rows[::-1]  # 时间升序
         data = {
             "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
             "values": [float(row[1]) for row in rows]
@@ -296,6 +295,42 @@ def api_cpu_trend():
 @app.route('/trend')
 def trend():
     return render_template('trend.html')
+
+# ==================== 聚合监控（新增） ====================
+@app.route('/api/metrics', methods=['GET'])
+def api_metrics():
+    try:
+        data = collect_all_sync()
+        return jsonify({"code": 0, "data": data})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
+
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+# ==================== 聚合监控图表（新增） ====================
+@app.route('/api/trend_all', methods=['GET'])
+def api_trend_all():
+    """返回最近 N 条记录的 CPU 和内存历史数据（用于仪表盘趋势图）"""
+    limit = request.args.get('limit', default=60, type=int)
+    limit = min(limit, 200)
+    try:
+        sql = """
+            SELECT timestamp, cpu_percent, memory_percent
+            FROM system_metrics
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        rows = execute_query(sql, (limit,))
+        rows = rows[::-1]  # 时间升序
+        data = {
+            "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
+            "cpu_values": [float(row[1]) for row in rows],
+            "memory_values": [float(row[2]) for row in rows]
+        }
+        return jsonify({"code": 0, "data": data})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ---------- 启动 ----------
 if __name__ == '__main__':
