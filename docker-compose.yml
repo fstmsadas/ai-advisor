@@ -9,8 +9,6 @@ services:
       MYSQL_PASSWORD: YourPass123!
       TZ: Asia/Shanghai
     command: --default-time-zone=+08:00
-    # ports:
-    #   - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -26,8 +24,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: myapp-redis
-    # ports:
-    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -52,7 +48,7 @@ services:
       DB_NAME: myapp
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      LOG_FILE_PATH: /var/log/myapp.log
+      LOG_FILE_PATH: /var/log/syslog
       CPU_THRESHOLD: 80
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: https://api.deepseek.com/v1
@@ -63,6 +59,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - /etc/localtime:/etc/localtime:ro
+      - /var/log:/var/log:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

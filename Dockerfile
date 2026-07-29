@@ -13,11 +13,13 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# 复制全部源码
+# 复制源码
 COPY . .
 
-# 创建非 root 用户（安全）
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# 创建非 root 用户，并加入 adm 组（以读取系统日志）
+RUN useradd -m -u 1000 appuser && usermod -aG adm appuser && chown -R appuser:appuser /app
+
+# 切换到 appuser
 USER appuser
 
 # 默认启动 Gunicorn（Flask 应用）
