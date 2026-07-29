@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def get_system_metrics():
     """同步获取系统基础指标（CPU、内存、磁盘、负载）"""
     logger.info("开始采集系统指标...")
-    cpu = psutil.cpu_percent(interval=0)
+    cpu = psutil.cpu_percent(interval=1)   # 改为 1 秒采样
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
     load = psutil.getloadavg()
@@ -23,11 +23,10 @@ def get_system_metrics():
     }
 
 def get_top_processes(n=5):
-    """获取 CPU 占用最高的 n 个进程（用于 AI 建议）"""
     processes = []
     for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
         try:
-            cpu = proc.cpu_percent(interval=0)
+            cpu = proc.cpu_percent(interval=0.5)   # 进程级别可适当缩短间隔
             mem = proc.memory_percent()
             processes.append({
                 'pid': proc.pid,
@@ -42,12 +41,12 @@ def get_top_processes(n=5):
     return processes[:n]
 
 def is_cpu_high(threshold=80):
-    return psutil.cpu_percent(interval=0) > threshold
+    return psutil.cpu_percent(interval=1) > threshold
 
 # ==================== 新增异步采集 ====================
 
 async def async_get_cpu():
-    return psutil.cpu_percent(interval=0)
+    return psutil.cpu_percent(interval=1)
 
 async def async_get_memory():
     mem = psutil.virtual_memory()
@@ -75,7 +74,6 @@ async def async_get_disk():
 
 async def async_get_network():
     conns = psutil.net_connections(kind='inet')
-    # 使用标准库 socket 常量判断连接类型
     tcp_conns = sum(1 for c in conns if c.type == socket.SOCK_STREAM)
     udp_conns = sum(1 for c in conns if c.type == socket.SOCK_DGRAM)
     net_io = psutil.net_io_counters()
@@ -90,7 +88,6 @@ async def async_get_network():
     }
 
 async def async_collect_all():
-    """并发采集所有指标，返回聚合字典"""
     logger.info("异步采集所有指标...")
     cpu_task = asyncio.create_task(async_get_cpu())
     mem_task = asyncio.create_task(async_get_memory())
@@ -105,7 +102,6 @@ async def async_collect_all():
     }
 
 def collect_all_sync():
-    """同步包装器，用于非异步上下文（如 Flask 路由）"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(async_collect_all())

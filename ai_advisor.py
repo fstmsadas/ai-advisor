@@ -19,14 +19,20 @@ def get_optimization_advice(metrics, top_procs, retries=3):
     for attempt in range(retries):
         try:
             advice = generate_response(prompt, temperature=0.2)
-            return advice
+            logger.info(f"AI 返回内容长度: {len(advice) if advice else 0}, 内容: {advice[:50] if advice else '空'}")
+            if advice and advice.strip():
+                return advice.strip()
+            else:
+                logger.warning(f"AI 返回空字符串，重试 {attempt+1}/{retries}")
         except Exception as e:
             logger.error(f"AI 调用失败 (尝试 {attempt+1}/{retries}): {e}")
             time.sleep(2 ** attempt)
-    return "AI 服务暂时不可用，请稍后重试。"
+    # 降级：返回默认建议
+    default_advice = f"⚠️ 当前 CPU 使用率 {metrics['cpu_percent']}%，建议检查高 CPU 进程：{top_procs}，考虑优化代码或扩容。"
+    logger.info(f"返回降级建议: {default_advice}")
+    return default_advice
 
 def check_and_advise(threshold=80):
-    """此函数保留用于命令行手动调用，仍会重新采集"""
     metrics = get_system_metrics()
     if metrics['cpu_percent'] > threshold:
         top_procs = get_top_processes(5)

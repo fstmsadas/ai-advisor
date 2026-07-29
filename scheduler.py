@@ -73,15 +73,15 @@ def start_scheduler():
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
-    # ---------- 每小时定时任务（整点后 5 分钟） ----------
+    # 每小时整点后 5 分钟执行
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
 
-    # ---------- 每天 14:00 日志分析 ----------
+    # 每天 14:00 日志分析
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
     logger.info("🕐 任务已添加: 每天14:00分析日志 (北京时间)")
 
-    # ---------- 新增：延迟 30 秒后执行一次采集（启动验证） ----------
+    # 延迟 30 秒后执行一次采集（启动验证）
     first_run = datetime.now() + timedelta(seconds=30)
     scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
     logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")
