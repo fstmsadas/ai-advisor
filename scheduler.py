@@ -14,6 +14,9 @@ logger = setup_logger('scheduler')
 logger.info("=" * 50)
 logger.info("调度器启动，日志系统已初始化")
 
+# 记录上次触发 AI 建议的时间（防止过于频繁）
+last_trigger_time = None
+
 def test_db_connection():
     logger.info("测试数据库连接...")
     conn = get_connection()
@@ -21,6 +24,7 @@ def test_db_connection():
     logger.info("数据库连接测试成功")
 
 def job_collect_metrics():
+    """完整采集指标并入库，若 CPU 超阈值则生成 AI 建议"""
     logger.info(">>> job_collect_metrics 被调用")
     try:
         logger.info("开始获取系统指标...")
@@ -64,6 +68,29 @@ def job_analyze_log():
     except Exception as e:
         logger.error(f"日志分析失败: {e}", exc_info=True)
 
+def cpu_monitor_task():
+    """
+    高频 CPU 监控任务：每 30 秒检查一次 CPU，
+    若超阈值且距上次触发超过 60 秒，则立即执行一次完整采集。
+    """
+    global last_trigger_time
+    try:
+        cpu = get_system_metrics()['cpu_percent']
+        threshold = config.CPU_THRESHOLD
+        if cpu > threshold:
+            now = datetime.now()
+            if last_trigger_time is None or (now - last_trigger_time).total_seconds() > 60:
+                logger.warning(f"🔴 高频监控检测到 CPU {cpu}% 超过阈值 {threshold}%，立即触发采集和建议")
+                # 执行完整采集（会判断是否超阈值并生成 AI 建议）
+                job_collect_metrics()
+                last_trigger_time = now
+            else:
+                logger.debug(f"CPU {cpu}% 超阈值，但距上次触发不足 60 秒，跳过")
+        else:
+            logger.debug(f"CPU {cpu}% 正常")
+    except Exception as e:
+        logger.error(f"高频监控任务异常: {e}", exc_info=True)
+
 def start_scheduler():
     try:
         test_db_connection()
@@ -73,15 +100,19 @@ def start_scheduler():
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
-    # 每小时整点后 5 分钟执行
+    # 1. 每小时整点后 5 分钟执行（长期趋势）
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
 
-    # 每天 14:00 日志分析
+    # 2. 每天 14:00 日志分析
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
     logger.info("🕐 任务已添加: 每天14:00分析日志 (北京时间)")
 
-    # 延迟 30 秒后执行一次采集（启动验证）
+    # 3. 高频 CPU 监控（每 30 秒检查一次，超阈值时立即触发采集）
+    scheduler.add_job(cpu_monitor_task, 'interval', seconds=30, id='cpu_monitor')
+    logger.info("🕐 任务已添加: 高频CPU监控 (每30秒检查，超阈值立即采集)")
+
+    # 4. 延迟 30 秒后执行一次采集（启动验证）
     first_run = datetime.now() + timedelta(seconds=30)
     scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
     logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")
