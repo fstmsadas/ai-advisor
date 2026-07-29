@@ -1,6 +1,24 @@
-version: '3.8'
-
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: myapp-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: myapp
+      MYSQL_USER: container_user
+      MYSQL_PASSWORD: YourPass123!
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - app-net
+
   redis:
     image: redis:7-alpine
     container_name: myapp-redis
@@ -13,29 +31,44 @@ services:
       - app-net
 
   python-app:
-    image: myapp-v2:latest
+    build: .
     container_name: myapp-python
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DB_HOST: 192.168.31.244
+      DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: container_user
       DB_PASSWORD: YourPass123!
       DB_NAME: myapp
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      LOG_FILE_PATH: /var/log/myapp.log
+      CPU_THRESHOLD: 80
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: https://api.deepseek.com/v1
+      DEEPSEEK_MODEL: deepseek-v4-pro
+      DEBUG: "False"
     ports:
       - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    command: sh -c "gunicorn -w 4 -b 0.0.0.0:8000 app:app & python scheduler.py"
     networks:
       - app-net
 
 networks:
   app-net:
+
+volumes:
+  mysql_data:
