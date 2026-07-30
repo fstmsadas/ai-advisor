@@ -1,5 +1,5 @@
 import pymysql
-import json  # 新增
+import json
 from config import config
 
 def get_connection():
@@ -60,7 +60,6 @@ def insert_log_stats(stats_dict):
         stats_dict['log_file']
     ))
 
-# ==================== 新增：插入 AI 建议 ====================
 def insert_ai_advice(advice_text, metrics, top_procs):
     sql = """
         INSERT INTO ai_advice 

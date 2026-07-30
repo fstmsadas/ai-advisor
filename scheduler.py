@@ -68,6 +68,42 @@ def job_analyze_log():
     except Exception as e:
         logger.error(f"日志分析失败: {e}", exc_info=True)
 
+def job_cleanup():
+    """每日清理过期数据：
+    - system_metrics (timestamp): 保留 30 天
+    - log_stats (created_at): 保留 90 天
+    - ai_advice (created_at): 保留 180 天
+    """
+    logger.info(">>> 开始执行数据清理任务...")
+    conn = None
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # system_metrics 使用 timestamp 字段
+            sql_sys = "DELETE FROM system_metrics WHERE timestamp < NOW() - INTERVAL 30 DAY"
+            rows_sys = cur.execute(sql_sys)
+
+            # log_stats 使用 created_at 字段
+            sql_log = "DELETE FROM log_stats WHERE created_at < NOW() - INTERVAL 90 DAY"
+            rows_log = cur.execute(sql_log)
+
+            # ai_advice 使用 created_at 字段
+            sql_adv = "DELETE FROM ai_advice WHERE created_at < NOW() - INTERVAL 180 DAY"
+            rows_adv = cur.execute(sql_adv)
+
+            conn.commit()
+            logger.info(
+                f"✅ 数据清理完成: system_metrics 删除 {rows_sys} 条, "
+                f"log_stats 删除 {rows_log} 条, ai_advice 删除 {rows_adv} 条"
+            )
+    except Exception as e:
+        logger.error(f"❌ 数据清理失败: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+
 def cpu_monitor_task():
     """
     高频 CPU 监控任务：每 30 秒检查一次 CPU，
@@ -81,7 +117,6 @@ def cpu_monitor_task():
             now = datetime.now()
             if last_trigger_time is None or (now - last_trigger_time).total_seconds() > 60:
                 logger.warning(f"🔴 高频监控检测到 CPU {cpu}% 超过阈值 {threshold}%，立即触发采集和建议")
-                # 执行完整采集（会判断是否超阈值并生成 AI 建议）
                 job_collect_metrics()
                 last_trigger_time = now
             else:
@@ -100,7 +135,7 @@ def start_scheduler():
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
-    # 1. 每小时整点后 5 分钟执行（长期趋势）
+    # 1. 每小时整点后 5 分钟采集指标
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
 
@@ -108,11 +143,15 @@ def start_scheduler():
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
     logger.info("🕐 任务已添加: 每天14:00分析日志 (北京时间)")
 
-    # 3. 高频 CPU 监控（每 30 秒检查一次，超阈值时立即触发采集）
+    # 3. 每天凌晨 3:00 数据清理
+    scheduler.add_job(job_cleanup, CronTrigger(hour=3, minute=0), id='cleanup')
+    logger.info("🕐 任务已添加: 每天凌晨3点清理过期数据")
+
+    # 4. 高频 CPU 监控（每 30 秒）
     scheduler.add_job(cpu_monitor_task, 'interval', seconds=30, id='cpu_monitor')
     logger.info("🕐 任务已添加: 高频CPU监控 (每30秒检查，超阈值立即采集)")
 
-    # 4. 延迟 30 秒后执行一次采集（启动验证）
+    # 5. 延迟 30 秒后执行一次采集（启动验证）
     first_run = datetime.now() + timedelta(seconds=30)
     scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
     logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")
