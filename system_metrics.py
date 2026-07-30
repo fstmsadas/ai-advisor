@@ -9,12 +9,14 @@ logger = logging.getLogger(__name__)
 
 def get_system_metrics():
     """同步获取系统基础指标（CPU、内存、磁盘、负载）"""
-    logger.info("开始采集系统指标...")
-    cpu = psutil.cpu_percent(interval=1)   # 改为 1 秒采样
-    mem = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-    load = psutil.getloadavg()
-    logger.info("采集完成")
+    try:
+        cpu = psutil.cpu_percent(interval=1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        load = psutil.getloadavg()
+    except Exception as e:
+        logger.error(f"采集系统指标失败: {e}", exc_info=True)
+        return {'cpu_percent': 0, 'memory_percent': 0, 'disk_usage': 0, 'load_avg': 0}
     return {
         'cpu_percent': cpu,
         'memory_percent': mem.percent,
@@ -23,27 +25,32 @@ def get_system_metrics():
     }
 
 def get_top_processes(n=5):
-    processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
-        try:
-            cpu = proc.cpu_percent(interval=0.5)   # 进程级别可适当缩短间隔
-            mem = proc.memory_percent()
-            processes.append({
-                'pid': proc.pid,
-                'user': proc.username(),
-                'cpu': round(cpu, 1),
-                'mem': round(mem, 1),
-                'command': proc.name()
-            })
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    processes.sort(key=lambda x: x['cpu'], reverse=True)
-    return processes[:n]
+    """获取 CPU 占用最高的 n 个进程"""
+    try:
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            try:
+                cpu = proc.cpu_percent(interval=0.5)
+                mem = proc.memory_percent()
+                processes.append({
+                    'pid': proc.pid,
+                    'user': proc.username(),
+                    'cpu': round(cpu, 1),
+                    'mem': round(mem, 1),
+                    'command': proc.name()
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        processes.sort(key=lambda x: x['cpu'], reverse=True)
+        return processes[:n]
+    except Exception as e:
+        logger.error(f"获取进程列表失败: {e}", exc_info=True)
+        return []
 
 def is_cpu_high(threshold=80):
     return psutil.cpu_percent(interval=1) > threshold
 
-# ==================== 新增异步采集 ====================
+# ==================== 异步采集函数 ====================
 
 async def async_get_cpu():
     return psutil.cpu_percent(interval=1)
@@ -88,6 +95,7 @@ async def async_get_network():
     }
 
 async def async_collect_all():
+    """并发采集所有指标，返回聚合字典"""
     logger.info("异步采集所有指标...")
     cpu_task = asyncio.create_task(async_get_cpu())
     mem_task = asyncio.create_task(async_get_memory())
@@ -102,6 +110,7 @@ async def async_collect_all():
     }
 
 def collect_all_sync():
+    """同步包装器，用于非异步上下文（如 Flask 路由）"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(async_collect_all())

@@ -1,36 +1,60 @@
 import pymysql
 import json
+import time
 from config import config
+import logging
 
-def get_connection():
-    return pymysql.connect(
-        host=config.DB_HOST,
-        port=config.DB_PORT,
-        user=config.DB_USER,
-        password=config.DB_PASSWORD,
-        database=config.DB_NAME,
-        connect_timeout=config.DB_CONNECT_TIMEOUT,
-        cursorclass=pymysql.cursors.Cursor
-    )
+logger = logging.getLogger(__name__)
+
+def get_connection(retries=3, delay=1):
+    """获取数据库连接，含指数退避重试"""
+    for attempt in range(retries):
+        try:
+            conn = pymysql.connect(
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                database=config.DB_NAME,
+                connect_timeout=config.DB_CONNECT_TIMEOUT,
+                cursorclass=pymysql.cursors.Cursor
+            )
+            return conn
+        except pymysql.Error as e:
+            logger.warning(f"数据库连接失败 (尝试 {attempt+1}/{retries}): {e}")
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay * (2 ** attempt))
+    raise RuntimeError("无法连接数据库")
 
 def execute_query(sql, params=None):
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
             return cur.fetchall()
+    except Exception as e:
+        logger.error(f"查询执行失败: {e}", exc_info=True)
+        raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def execute_insert(sql, params=None):
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         with conn.cursor() as cur:
             cur.execute(sql, params or ())
             conn.commit()
             return cur.lastrowid
+    except Exception as e:
+        logger.error(f"插入执行失败: {e}", exc_info=True)
+        raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def insert_system_metrics(metrics_dict):
     sql = """
