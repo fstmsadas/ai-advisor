@@ -3,9 +3,11 @@ import json
 import time
 from config import config
 import logging
+from buffer import write_to_buffer
 
 logger = logging.getLogger(__name__)
 
+# ---------- 连接与基础操作 ----------
 def get_connection(retries=3, delay=1):
     """获取数据库连接，含指数退避重试"""
     for attempt in range(retries):
@@ -56,7 +58,17 @@ def execute_insert(sql, params=None):
         if conn:
             conn.close()
 
+# ---------- 业务插入函数（带缓冲） ----------
 def insert_system_metrics(metrics_dict):
+    """插入系统指标，失败时写入缓冲"""
+    try:
+        return _insert_system_metrics(metrics_dict)
+    except Exception as e:
+        logger.error(f"MySQL 插入 system_metrics 失败，写入缓冲: {e}")
+        write_to_buffer("system_metrics", metrics_dict)
+        return None
+
+def _insert_system_metrics(metrics_dict):
     sql = """
         INSERT INTO system_metrics 
         (cpu_percent, memory_percent, disk_usage, load_avg, timestamp)
@@ -70,6 +82,14 @@ def insert_system_metrics(metrics_dict):
     ))
 
 def insert_log_stats(stats_dict):
+    try:
+        return _insert_log_stats(stats_dict)
+    except Exception as e:
+        logger.error(f"MySQL 插入 log_stats 失败，写入缓冲: {e}")
+        write_to_buffer("log_stats", stats_dict)
+        return None
+
+def _insert_log_stats(stats_dict):
     sql = """
         INSERT INTO log_stats 
         (log_date, total_lines, error_count, warning_count, info_count, log_file)
@@ -85,6 +105,20 @@ def insert_log_stats(stats_dict):
     ))
 
 def insert_ai_advice(advice_text, metrics, top_procs):
+    try:
+        return _insert_ai_advice(advice_text, metrics, top_procs)
+    except Exception as e:
+        logger.error(f"MySQL 插入 ai_advice 失败，写入缓冲: {e}")
+        # 打包成完整字典以便缓冲恢复
+        buffer_data = {
+            "advice_text": advice_text,
+            "metrics": metrics,
+            "top_procs": top_procs
+        }
+        write_to_buffer("ai_advice", buffer_data)
+        return None
+
+def _insert_ai_advice(advice_text, metrics, top_procs):
     sql = """
         INSERT INTO ai_advice 
         (advice_text, cpu_percent, memory_percent, disk_usage, load_avg, top_processes)
