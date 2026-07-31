@@ -1,26 +1,4 @@
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: myapp-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: myapp
-      MYSQL_USER: container_user
-      MYSQL_PASSWORD: YourPass123!
-      TZ: Asia/Shanghai
-    command: --default-time-zone=+08:00
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - app-net
-
   redis:
     image: redis:7-alpine
     container_name: myapp-redis
@@ -37,15 +15,13 @@ services:
     image: myapp-v2-python-app:latest
     container_name: myapp-python
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DB_HOST: mysql
+      DB_HOST: 192.168.31.244
       DB_PORT: 3306
       DB_USER: container_user
-      DB_PASSWORD: YourPass123!
+      DB_PASSWORD: Xxy123456!
       DB_NAME: myapp
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -73,6 +49,3 @@ services:
 
 networks:
   app-net:
-
-volumes:
-  mysql_data:
