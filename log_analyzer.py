@@ -5,6 +5,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def read_log_lines(filepath):
+    """生成器，逐行返回日志内容，避免一次性加载大文件"""
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            yield line
+
 def analyze_log_file(filepath, log_date=None):
     if log_date is None:
         log_date = get_today_str()
@@ -17,21 +23,20 @@ def analyze_log_file(filepath, log_date=None):
         'info_count': 0,
         'error_lines': []
     }
+    pattern = re.compile(r'(ERROR|WARNING|INFO)')
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            pattern = re.compile(r'(ERROR|WARNING|INFO)')
-            for line_num, line in enumerate(f, 1):
-                stats['total_lines'] += 1
-                match = pattern.search(line)
-                if match:
-                    level = match.group(1)
-                    if level == 'ERROR':
-                        stats['error_count'] += 1
-                        stats['error_lines'].append(line_num)
-                    elif level == 'WARNING':
-                        stats['warning_count'] += 1
-                    elif level == 'INFO':
-                        stats['info_count'] += 1
+        for line_num, line in enumerate(read_log_lines(filepath), 1):
+            stats['total_lines'] += 1
+            match = pattern.search(line)
+            if match:
+                level = match.group(1)
+                if level == 'ERROR':
+                    stats['error_count'] += 1
+                    stats['error_lines'].append(line_num)
+                elif level == 'WARNING':
+                    stats['warning_count'] += 1
+                elif level == 'INFO':
+                    stats['info_count'] += 1
     except FileNotFoundError:
         logger.error(f"日志文件 {filepath} 不存在")
     except Exception as e:

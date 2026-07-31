@@ -7,9 +7,8 @@ from buffer import write_to_buffer
 
 logger = logging.getLogger(__name__)
 
-# ---------- 连接与基础操作 ----------
 def get_connection(retries=3, delay=1):
-    """获取数据库连接，含指数退避重试"""
+    """获取 MySQL 连接，带指数退避重试"""
     for attempt in range(retries):
         try:
             conn = pymysql.connect(
@@ -23,11 +22,11 @@ def get_connection(retries=3, delay=1):
             )
             return conn
         except pymysql.Error as e:
-            logger.warning(f"数据库连接失败 (尝试 {attempt+1}/{retries}): {e}")
+            logger.warning(f"MySQL 连接失败 (尝试 {attempt+1}/{retries}): {e}")
             if attempt == retries - 1:
                 raise
             time.sleep(delay * (2 ** attempt))
-    raise RuntimeError("无法连接数据库")
+    raise RuntimeError("无法连接 MySQL")
 
 def execute_query(sql, params=None):
     conn = None
@@ -58,9 +57,7 @@ def execute_insert(sql, params=None):
         if conn:
             conn.close()
 
-# ---------- 业务插入函数（带缓冲） ----------
 def insert_system_metrics(metrics_dict):
-    """插入系统指标，失败时写入缓冲"""
     try:
         return _insert_system_metrics(metrics_dict)
     except Exception as e:
@@ -109,12 +106,7 @@ def insert_ai_advice(advice_text, metrics, top_procs):
         return _insert_ai_advice(advice_text, metrics, top_procs)
     except Exception as e:
         logger.error(f"MySQL 插入 ai_advice 失败，写入缓冲: {e}")
-        # 打包成完整字典以便缓冲恢复
-        buffer_data = {
-            "advice_text": advice_text,
-            "metrics": metrics,
-            "top_procs": top_procs
-        }
+        buffer_data = {"advice_text": advice_text, "metrics": metrics, "top_procs": top_procs}
         write_to_buffer("ai_advice", buffer_data)
         return None
 

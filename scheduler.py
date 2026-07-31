@@ -1,7 +1,7 @@
 import logging
 import sys
 import json
-import time
+import threading
 from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -21,29 +21,58 @@ logger = setup_logger('scheduler')
 logger.info("=" * 50)
 logger.info("调度器启动，日志系统已初始化")
 
-# 记录上次触发 AI 建议的时间
-last_trigger_time = None
+# ---------- 批量缓冲配置 ----------
+BUFFER_BATCH_SIZE = 50
+BUFFER_FLUSH_INTERVAL = 60  # 秒
+metrics_buffer = []
+buffer_lock = threading.Lock()
 
-def test_db_connection():
-    logger.info("测试数据库连接...")
-    conn = get_connection()
-    conn.close()
-    logger.info("数据库连接测试成功")
+def add_metric_to_buffer(metrics_dict):
+    """将指标加入批量缓冲"""
+    with buffer_lock:
+        metrics_buffer.append(metrics_dict)
+        if len(metrics_buffer) >= BUFFER_BATCH_SIZE:
+            flush_metrics_buffer()
+
+def flush_metrics_buffer():
+    """批量插入所有缓冲指标"""
+    global metrics_buffer
+    with buffer_lock:
+        if not metrics_buffer:
+            return
+        items = metrics_buffer[:]
+        metrics_buffer = []
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            sql = """
+                INSERT INTO system_metrics 
+                (cpu_percent, memory_percent, disk_usage, load_avg, timestamp)
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+            params = [(m['cpu_percent'], m['memory_percent'], m['disk_usage'], m['load_avg']) for m in items]
+            cur.executemany(sql, params)
+            conn.commit()
+            logger.info(f"✅ 批量插入 {len(items)} 条 system_metrics")
+    except Exception as e:
+        logger.error(f"批量插入失败: {e}，回退单条插入")
+        for m in items:
+            insert_system_metrics(m)  # 回退到带缓冲的单条插入
+    finally:
+        if conn:
+            conn.close()
 
 def job_collect_metrics():
-    """完整采集指标并入库，若 CPU 超阈值则生成 AI 建议"""
+    """完整采集指标，并加入批量缓冲"""
     logger.info(">>> job_collect_metrics 被调用")
     try:
         logger.info("开始获取系统指标...")
         metrics = get_system_metrics()
         logger.info(f"获取到指标: {metrics}")
 
-        logger.info("开始插入数据库...")
-        inserted_id = insert_system_metrics(metrics)
-        if inserted_id:
-            logger.info(f"✅ 指标已入库 (ID={inserted_id})")
-        else:
-            logger.warning("指标已写入缓冲（MySQL 不可用）")
+        # 改为加入缓冲，而非直接插入
+        add_metric_to_buffer(metrics)
+        logger.info("✅ 指标已加入批量缓冲")
 
         cpu = metrics['cpu_percent']
         threshold = config.CPU_THRESHOLD
@@ -94,7 +123,7 @@ def job_cleanup():
             sql_adv = "DELETE FROM ai_advice WHERE created_at < NOW() - INTERVAL 180 DAY"
             rows_adv = cur.execute(sql_adv)
             conn.commit()
-            logger.info(f"✅ 数据清理完成: system_metrics 删除 {rows_sys} 条, log_stats 删除 {rows_log} 条, ai_advice 删除 {rows_adv} 条")
+            logger.info(f"✅ 数据清理完成: system_metrics {rows_sys}, log_stats {rows_log}, ai_advice {rows_adv}")
     except Exception as e:
         logger.error(f"❌ 数据清理失败: {e}")
         if conn:
@@ -111,7 +140,7 @@ def cpu_monitor_task():
         if cpu > threshold:
             now = datetime.now()
             if last_trigger_time is None or (now - last_trigger_time).total_seconds() > 60:
-                logger.warning(f"🔴 高频监控检测到 CPU {cpu}% 超过阈值 {threshold}%，立即触发采集和建议")
+                logger.warning(f"🔴 高频监控检测到 CPU {cpu}% 超过阈值，立即触发采集")
                 job_collect_metrics()
                 last_trigger_time = now
             else:
@@ -122,7 +151,7 @@ def cpu_monitor_task():
         logger.error(f"高频监控任务异常: {e}", exc_info=True)
 
 def sync_buffer_to_mysql():
-    """从缓冲区读取数据并尝试写入 MySQL，详细记录每一条的处理结果"""
+    """从缓冲区读取数据并尝试写入 MySQL，详细记录每一条"""
     logger.info(">>> 开始同步缓冲数据到 MySQL...")
     total_synced = 0
     total_errors = 0
@@ -146,47 +175,42 @@ def sync_buffer_to_mysql():
             except Exception as e:
                 logger.error(f"❌ 同步 {data_type} 第 {idx+1} 条失败: {e}")
                 total_errors += 1
-                # 将该条数据重新放回队列（仅 Redis 支持）
                 if redis_available:
                     import redis
                     r = redis.Redis(host=config.REDIS_HOST, port=config.REDIS_PORT, decode_responses=True)
                     r.rpush(f"buffer:{data_type}", json.dumps(item))
                 else:
-                    # 文件缓冲需要额外处理，此处简化（将失败数据写回文件末尾）
-                    # 但由于文件缓冲实现简单，失败数据可能丢失，建议使用 Redis
                     logger.warning("文件缓冲不支持重放，失败数据可能丢失")
     logger.info(f"✅ 缓冲数据同步完成：成功 {total_synced} 条，失败 {total_errors} 条")
 
 def start_scheduler():
     try:
-        test_db_connection()
+        get_connection().close()
+        logger.info("数据库连接测试成功")
     except Exception as e:
         logger.error(f"数据库连接失败，调度器无法启动: {e}")
         return
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
-    # 1. 每小时整点后 5 分钟采集指标
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
-    logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分) 北京时间")
+    logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分)")
 
-    # 2. 每天 14:00 日志分析
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
-    logger.info("🕐 任务已添加: 每天14:00分析日志 (北京时间)")
+    logger.info("🕐 任务已添加: 每天14:00分析日志")
 
-    # 3. 每天凌晨 3:00 数据清理
     scheduler.add_job(job_cleanup, CronTrigger(hour=3, minute=0), id='cleanup')
     logger.info("🕐 任务已添加: 每天凌晨3点清理过期数据")
 
-    # 4. 高频 CPU 监控（每 30 秒）
     scheduler.add_job(cpu_monitor_task, 'interval', seconds=30, id='cpu_monitor')
-    logger.info("🕐 任务已添加: 高频CPU监控 (每30秒检查，超阈值立即采集)")
+    logger.info("🕐 任务已添加: 高频CPU监控 (每30秒)")
 
-    # 5. 缓冲数据同步（每 30 秒）
     scheduler.add_job(sync_buffer_to_mysql, 'interval', seconds=30, id='sync_buffer')
-    logger.info("🕐 任务已添加: 每30秒同步缓冲数据到MySQL")
+    logger.info("🕐 任务已添加: 每30秒同步缓冲数据")
 
-    # 6. 延迟 30 秒后执行一次采集（启动验证）
+    scheduler.add_job(flush_metrics_buffer, 'interval', seconds=BUFFER_FLUSH_INTERVAL, id='flush_metrics')
+    logger.info(f"🕐 任务已添加: 每 {BUFFER_FLUSH_INTERVAL} 秒批量刷新指标缓冲")
+
     first_run = datetime.now() + timedelta(seconds=30)
     scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
     logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")

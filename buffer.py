@@ -23,19 +23,17 @@ except Exception as e:
     redis_available = False
     logger.warning(f"Redis 不可用: {e}，将使用文件缓冲")
 
-# ---- 文件缓冲路径 ----
-FILE_BUFFER_PATH = "/app/data/buffer.jsonl"
+# ---- 文件缓冲路径（相对路径，兼容容器和宿主机） ----
+FILE_BUFFER_PATH = os.path.join(os.getcwd(), "data", "buffer.jsonl")
 os.makedirs(os.path.dirname(FILE_BUFFER_PATH), exist_ok=True)
 
 def write_to_buffer(data_type, data):
-    """写入缓冲区（优先 Redis，降级到文件）"""
     if redis_available:
         try:
             r.rpush(f"buffer:{data_type}", json.dumps(data))
             return True
         except Exception as e:
             logger.error(f"Redis 写入失败: {e}，降级到文件")
-    # 文件降级
     try:
         with open(FILE_BUFFER_PATH, 'a', encoding='utf-8') as f:
             f.write(json.dumps({"type": data_type, "data": data, "ts": time.time()}) + "\n")
@@ -45,7 +43,6 @@ def write_to_buffer(data_type, data):
         return False
 
 def read_from_buffer(data_type, batch_size=100):
-    """从缓冲区读取数据（优先 Redis，降级到文件）"""
     if redis_available:
         try:
             items = []
@@ -57,7 +54,6 @@ def read_from_buffer(data_type, batch_size=100):
             return items
         except Exception as e:
             logger.error(f"Redis 读取失败: {e}，降级到文件")
-    # 文件降级
     try:
         with open(FILE_BUFFER_PATH, 'r', encoding='utf-8') as f:
             lines = f.readlines()
