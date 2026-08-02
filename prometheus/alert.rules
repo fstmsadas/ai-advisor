@@ -1,0 +1,23 @@
+groups:
+  - name: cpu_usage
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: (100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100)) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU 使用率超过 80% (当前 {{ $value }}%)"
+          description: "实例 {{ $labels.instance }} 的 CPU 使用率已超过阈值，持续 2 分钟。"
+
+  - name: app_errors
+    rules:
+      - alert: HighErrorRate
+        expr: rate(flask_http_request_total{status=~"5.."}[5m]) > 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 错误率过高"
+          description: "服务 {{ $labels.app }} 5xx 错误率超过 1 req/s"

@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
+from prometheus_flask_exporter import PrometheusMetrics
 from db import execute_query
 from config import config
 import logging
@@ -11,9 +12,13 @@ from ai import generate_response
 from system_metrics import collect_all_sync
 
 app = Flask(__name__)
-# ---------- 设置加密密钥 ----------
 app.secret_key = config.SECRET_KEY
-# ---------------------------------
+
+# ---------- 初始化 Prometheus 指标 ----------
+metrics = PrometheusMetrics(app)
+# 可选：添加自定义业务指标（示例）
+# metrics.counter('db_query_total', 'Total DB queries', labels={'type': 'select'})
+
 CORS(app)
 
 logging.basicConfig(level=logging.INFO)
