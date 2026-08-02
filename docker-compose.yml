@@ -1,4 +1,30 @@
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: myapp-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}              # 与 DB_PASSWORD 保持一致
+      TZ: Asia/Shanghai
+    command: --innodb_buffer_pool_size=128M --default-time-zone=+08:00
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - app-net
+
   redis:
     image: redis:7-alpine
     container_name: myapp-redis
@@ -7,30 +33,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 100M
     networks:
       - app-net
 
   python-app:
     build: .
-    image: myapp-v2-python-app:latest
     container_name: myapp-python
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      DB_HOST: 192.168.31.244
-      DB_PORT: 3306
-      DB_USER: container_user
-      DB_PASSWORD: Xxy123456!
-      DB_NAME: myapp
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      LOG_FILE_PATH: /var/log/syslog
-      CPU_THRESHOLD: 80
+      # 数据库
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      # AI
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DEEPSEEK_BASE_URL: https://api.deepseek.com/v1
-      DEEPSEEK_MODEL: deepseek-v4-pro
-      DEBUG: "False"
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL}
+      # 应用
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG}
+      CPU_THRESHOLD: ${CPU_THRESHOLD}
+      LOG_FILE_PATH: ${LOG_FILE_PATH}
     ports:
       - "8000:8000"
     volumes:
@@ -43,9 +79,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    command: sh -c "gunicorn -w 4 -b 0.0.0.0:8000 --timeout 240 app:app & python scheduler.py"
+    command: sh -c "gunicorn -w 2 -b 0.0.0.0:8000 --timeout 240 app:app & python scheduler.py"
+    deploy:
+      resources:
+        limits:
+          memory: 800M
     networks:
       - app-net
 
 networks:
   app-net:
+
+volumes:
+  mysql_data:

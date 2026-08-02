@@ -11,6 +11,9 @@ from ai import generate_response
 from system_metrics import collect_all_sync
 
 app = Flask(__name__)
+# ---------- 设置加密密钥 ----------
+app.secret_key = config.SECRET_KEY
+# ---------------------------------
 CORS(app)
 
 logging.basicConfig(level=logging.INFO)
@@ -283,7 +286,7 @@ def api_cpu_trend():
             LIMIT %s
         """
         rows = execute_query(sql, (limit,))
-        rows = rows[::-1]  # 时间升序
+        rows = rows[::-1]
         data = {
             "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
             "values": [float(row[1]) for row in rows]
@@ -296,7 +299,7 @@ def api_cpu_trend():
 def trend():
     return render_template('trend.html')
 
-# ==================== 聚合监控（新增） ====================
+# ==================== 聚合监控 ====================
 @app.route('/api/metrics', methods=['GET'])
 def api_metrics():
     try:
@@ -308,29 +311,6 @@ def api_metrics():
 @app.route('/dashboard')
 def dashboard():
     return render_template('dashboard.html')
-# ==================== 聚合监控图表（新增） ====================
-@app.route('/api/trend_all', methods=['GET'])
-def api_trend_all():
-    """返回最近 N 条记录的 CPU 和内存历史数据（用于仪表盘趋势图）"""
-    limit = request.args.get('limit', default=60, type=int)
-    limit = min(limit, 200)
-    try:
-        sql = """
-            SELECT timestamp, cpu_percent, memory_percent
-            FROM system_metrics
-            ORDER BY id DESC
-            LIMIT %s
-        """
-        rows = execute_query(sql, (limit,))
-        rows = rows[::-1]  # 时间升序
-        data = {
-            "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
-            "cpu_values": [float(row[1]) for row in rows],
-            "memory_values": [float(row[2]) for row in rows]
-        }
-        return jsonify({"code": 0, "data": data})
-    except Exception as e:
-        return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ---------- 启动 ----------
 if __name__ == '__main__':
