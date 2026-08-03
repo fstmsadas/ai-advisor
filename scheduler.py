@@ -16,6 +16,7 @@ from ai_advisor import get_optimization_advice
 from config import config
 from utils import setup_logger, get_today_str
 from buffer import read_from_buffer, get_buffer_length, redis_available
+from cache import cache_delete, cache_delete_pattern
 
 logger = setup_logger('scheduler')
 logger.info("=" * 50)
@@ -26,16 +27,21 @@ BUFFER_BATCH_SIZE = 50
 BUFFER_FLUSH_INTERVAL = 60  # 秒
 metrics_buffer = []
 buffer_lock = threading.Lock()
+last_trigger_time = None
+
+def test_db_connection():
+    logger.info("测试数据库连接...")
+    conn = get_connection()
+    conn.close()
+    logger.info("数据库连接测试成功")
 
 def add_metric_to_buffer(metrics_dict):
-    """将指标加入批量缓冲"""
     with buffer_lock:
         metrics_buffer.append(metrics_dict)
         if len(metrics_buffer) >= BUFFER_BATCH_SIZE:
             flush_metrics_buffer()
 
 def flush_metrics_buffer():
-    """批量插入所有缓冲指标"""
     global metrics_buffer
     with buffer_lock:
         if not metrics_buffer:
@@ -54,23 +60,26 @@ def flush_metrics_buffer():
             cur.executemany(sql, params)
             conn.commit()
             logger.info(f"✅ 批量插入 {len(items)} 条 system_metrics")
+            # 清除仪表盘缓存
+            cache_delete('metrics:latest')
+            cache_delete_pattern('trend:all:*')
+            logger.info("已清除仪表盘缓存")
     except Exception as e:
         logger.error(f"批量插入失败: {e}，回退单条插入")
         for m in items:
-            insert_system_metrics(m)  # 回退到带缓冲的单条插入
+            insert_system_metrics(m)
     finally:
         if conn:
             conn.close()
 
 def job_collect_metrics():
-    """完整采集指标，并加入批量缓冲"""
     logger.info(">>> job_collect_metrics 被调用")
     try:
         logger.info("开始获取系统指标...")
         metrics = get_system_metrics()
         logger.info(f"获取到指标: {metrics}")
 
-        # 改为加入缓冲，而非直接插入
+        # 加入批量缓冲
         add_metric_to_buffer(metrics)
         logger.info("✅ 指标已加入批量缓冲")
 
@@ -151,7 +160,6 @@ def cpu_monitor_task():
         logger.error(f"高频监控任务异常: {e}", exc_info=True)
 
 def sync_buffer_to_mysql():
-    """从缓冲区读取数据并尝试写入 MySQL，详细记录每一条"""
     logger.info(">>> 开始同步缓冲数据到 MySQL...")
     total_synced = 0
     total_errors = 0
@@ -185,32 +193,38 @@ def sync_buffer_to_mysql():
 
 def start_scheduler():
     try:
-        get_connection().close()
-        logger.info("数据库连接测试成功")
+        test_db_connection()
     except Exception as e:
         logger.error(f"数据库连接失败，调度器无法启动: {e}")
         return
 
     scheduler = BlockingScheduler(timezone='Asia/Shanghai')
 
+    # 每小时整点后 5 分钟采集指标
     scheduler.add_job(job_collect_metrics, 'cron', minute=5, id='metrics')
     logger.info("🕐 任务已添加: 每小时采集指标 (整点后5分)")
 
+    # 每天 14:00 日志分析
     scheduler.add_job(job_analyze_log, CronTrigger(hour=14, minute=0), id='log_analysis')
     logger.info("🕐 任务已添加: 每天14:00分析日志")
 
+    # 每天凌晨 3:00 数据清理
     scheduler.add_job(job_cleanup, CronTrigger(hour=3, minute=0), id='cleanup')
     logger.info("🕐 任务已添加: 每天凌晨3点清理过期数据")
 
+    # 高频 CPU 监控（每 30 秒）
     scheduler.add_job(cpu_monitor_task, 'interval', seconds=30, id='cpu_monitor')
     logger.info("🕐 任务已添加: 高频CPU监控 (每30秒)")
 
+    # 缓冲数据同步（每 30 秒）
     scheduler.add_job(sync_buffer_to_mysql, 'interval', seconds=30, id='sync_buffer')
     logger.info("🕐 任务已添加: 每30秒同步缓冲数据")
 
+    # 批量刷新指标缓冲（每 60 秒）
     scheduler.add_job(flush_metrics_buffer, 'interval', seconds=BUFFER_FLUSH_INTERVAL, id='flush_metrics')
     logger.info(f"🕐 任务已添加: 每 {BUFFER_FLUSH_INTERVAL} 秒批量刷新指标缓冲")
 
+    # 延迟 30 秒后执行一次采集（启动验证）
     first_run = datetime.now() + timedelta(seconds=30)
     scheduler.add_job(job_collect_metrics, 'date', run_date=first_run, id='first_collect')
     logger.info(f"⏳ 首次采集将在 {first_run.strftime('%H:%M:%S')} 执行（30秒后）")

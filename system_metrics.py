@@ -116,3 +116,26 @@ def collect_all_sync():
     result = loop.run_until_complete(async_collect_all())
     loop.close()
     return result
+def collect_all_sync_simple():
+    """简单的同步采集（避免 asyncio 开销）"""
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    io = psutil.disk_io_counters()
+    conns = psutil.net_connections(kind='inet')
+    return {
+        'cpu_percent': psutil.cpu_percent(interval=0.5),
+        'memory': {
+            'percent': mem.percent,
+            'available': mem.available
+        },
+        'disk': {
+            'usage_percent': disk.percent,
+            'read_bytes': io.read_bytes if io else 0,
+            'write_bytes': io.write_bytes if io else 0
+        },
+        'network': {
+            'total_connections': len(conns),
+            'tcp_connections': sum(1 for c in conns if c.type == socket.SOCK_STREAM),
+            'udp_connections': sum(1 for c in conns if c.type == socket.SOCK_DGRAM)
+        }
+    }

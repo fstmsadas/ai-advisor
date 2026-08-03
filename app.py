@@ -6,9 +6,9 @@ import logging
 import json
 import time
 from datetime import datetime
-from cache import cache_get, cache_set
+from cache import cache_get, cache_set, cache_delete, cache_delete_pattern
 from ai import generate_response
-from system_metrics import collect_all_sync
+from system_metrics import collect_all_sync, collect_all_sync_simple
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -271,7 +271,7 @@ def api_analyze_log():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== CPU 趋势（原有，保持不变） ====================
+# ==================== CPU 趋势（原有） ====================
 @app.route('/api/cpu_trend', methods=['GET'])
 def api_cpu_trend():
     limit = request.args.get('limit', default=100, type=int)
@@ -302,29 +302,39 @@ def trend():
 def api_trend_all():
     limit = request.args.get('limit', default=100, type=int)
     limit = min(limit, 500)
+    cache_key = f'trend:all:limit:{limit}'
+    cached = cache_get(cache_key)
+    if cached:
+        return jsonify({"code": 0, "data": json.loads(cached)})
     try:
         sql = """
             SELECT timestamp, cpu_percent, memory_percent
             FROM system_metrics
-            ORDER BY id DESC
+            ORDER BY timestamp DESC
             LIMIT %s
         """
         rows = execute_query(sql, (limit,))
-        rows = rows[::-1]  # 时间升序
+        rows = rows[::-1]
         data = {
             "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
             "cpu_values": [float(row[1]) for row in rows],
             "memory_values": [float(row[2]) for row in rows]
         }
+        cache_set(cache_key, json.dumps(data), ttl=60)
         return jsonify({"code": 0, "data": data})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== 聚合监控 ====================
+# ==================== 聚合监控（实时指标） ====================
 @app.route('/api/metrics', methods=['GET'])
 def api_metrics():
+    cache_key = 'metrics:latest'
+    cached = cache_get(cache_key)
+    if cached:
+        return jsonify({"code": 0, "data": json.loads(cached)})
     try:
-        data = collect_all_sync()
+        data = collect_all_sync_simple()
+        cache_set(cache_key, json.dumps(data), ttl=60)
         return jsonify({"code": 0, "data": data})
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
