@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-from prometheus_flask_exporter import PrometheusMetrics
 from db import execute_query
 from config import config
 import logging
@@ -13,12 +12,6 @@ from system_metrics import collect_all_sync
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-
-# ---------- 初始化 Prometheus 指标 ----------
-metrics = PrometheusMetrics(app)
-# 可选：添加自定义业务指标（示例）
-# metrics.counter('db_query_total', 'Total DB queries', labels={'type': 'select'})
-
 CORS(app)
 
 logging.basicConfig(level=logging.INFO)
@@ -278,7 +271,7 @@ def api_analyze_log():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== CPU 趋势 ====================
+# ==================== CPU 趋势（原有，保持不变） ====================
 @app.route('/api/cpu_trend', methods=['GET'])
 def api_cpu_trend():
     limit = request.args.get('limit', default=100, type=int)
@@ -303,6 +296,29 @@ def api_cpu_trend():
 @app.route('/trend')
 def trend():
     return render_template('trend.html')
+
+# ==================== 趋势历史数据（用于仪表盘，含内存） ====================
+@app.route('/api/trend_all', methods=['GET'])
+def api_trend_all():
+    limit = request.args.get('limit', default=100, type=int)
+    limit = min(limit, 500)
+    try:
+        sql = """
+            SELECT timestamp, cpu_percent, memory_percent
+            FROM system_metrics
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        rows = execute_query(sql, (limit,))
+        rows = rows[::-1]  # 时间升序
+        data = {
+            "timestamps": [row[0].strftime('%Y-%m-%d %H:%M:%S') for row in rows],
+            "cpu_values": [float(row[1]) for row in rows],
+            "memory_values": [float(row[2]) for row in rows]
+        }
+        return jsonify({"code": 0, "data": data})
+    except Exception as e:
+        return jsonify({"code": 500, "msg": str(e)}), 500
 
 # ==================== 聚合监控 ====================
 @app.route('/api/metrics', methods=['GET'])

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>系统聚合监控</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
     <style>
         body { background: #f5f7fa; font-family: 'Segoe UI', sans-serif; padding: 20px; }
         .container { max-width: 1400px; margin: auto; }
@@ -14,6 +14,7 @@
         .card-value { font-size: 2rem; font-weight: 700; color: #2c3e50; }
         .card-sub { font-size: 0.9rem; color: #6c757d; }
         .chart-container { height: 300px; background: white; border-radius: 16px; padding: 15px; margin-top: 30px; }
+        .error-msg { color: red; font-size: 0.9rem; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -55,72 +56,120 @@
             </div>
         </div>
 
-        <!-- ECharts 趋势图 -->
+        <!-- 趋势图 -->
         <div class="chart-container">
             <div id="trendChart" style="width:100%;height:100%;"></div>
         </div>
+        <div id="chartError" class="error-msg">⚠️ 趋势图加载失败，请检查网络或联系管理员。</div>
         <div class="text-center text-muted mt-3">数据每5秒自动刷新</div>
     </div>
 
     <script>
-        // 初始化图表
-        var chartDom = document.getElementById('trendChart');
-        var myChart = echarts.init(chartDom);
-        var option = {
-            title: { text: 'CPU & 内存历史趋势' },
-            tooltip: { trigger: 'axis' },
-            legend: { data: ['CPU %', '内存 %'] },
-            xAxis: { type: 'category', data: [] },
-            yAxis: { type: 'value', min: 0, max: 100 },
-            series: [
-                { name: 'CPU %', type: 'line', smooth: true, data: [] },
-                { name: '内存 %', type: 'line', smooth: true, data: [] }
-            ]
-        };
-        myChart.setOption(option);
+        (function() {
+            var chartDom = document.getElementById('trendChart');
+            if (!chartDom) {
+                console.error('❌ trendChart 容器不存在');
+                return;
+            }
+            var myChart = echarts.init(chartDom);
+            var option = {
+                title: { text: 'CPU & 内存历史趋势' },
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['CPU %', '内存 %'] },
+                xAxis: { type: 'category', data: [] },
+                yAxis: { type: 'value', min: 0, max: 100 },
+                series: [
+                    { name: 'CPU %', type: 'line', smooth: true, data: [] },
+                    { name: '内存 %', type: 'line', smooth: true, data: [] }
+                ]
+            };
+            myChart.setOption(option);
 
-        // 更新所有数据（图表 + 卡片）
-        function fetchAll() {
-            // 1. 获取历史趋势数据
-            fetch('/api/trend_all?limit=60')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.code !== 0) return;
-                    const d = data.data;
-                    myChart.setOption({
-                        xAxis: { data: d.timestamps },
-                        series: [
-                            { data: d.cpu_values },
-                            { data: d.memory_values }
-                        ]
+            // ---------- 更新函数 ----------
+            function updateCards(data) {
+                if (!data) return;
+                document.getElementById('cpuValue').textContent = (data.cpu_percent || 0) + '%';
+                document.getElementById('loadAvg').textContent = data.load_avg || '--';
+                if (data.memory) {
+                    document.getElementById('memValue').textContent = (data.memory.percent || 0) + '%';
+                    document.getElementById('memAvailable').textContent = (data.memory.available ? (data.memory.available / (1024 * 1024)).toFixed(0) + ' MB' : '--');
+                }
+                if (data.disk) {
+                    document.getElementById('diskValue').textContent = (data.disk.usage_percent || 0) + '%';
+                    document.getElementById('diskIO').textContent = `读:${(data.disk.read_bytes ? (data.disk.read_bytes / 1024 / 1024).toFixed(1) : '--')}MB 写:${(data.disk.write_bytes ? (data.disk.write_bytes / 1024 / 1024).toFixed(1) : '--')}MB`;
+                }
+                if (data.network) {
+                    document.getElementById('netValue').textContent = data.network.total_connections || '--';
+                    document.getElementById('tcpCount').textContent = data.network.tcp_connections || '--';
+                    document.getElementById('udpCount').textContent = data.network.udp_connections || '--';
+                }
+            }
+
+            function updateTrend(data) {
+                if (!data || !data.timestamps || !data.cpu_values || !data.memory_values) {
+                    console.warn('⚠️ 趋势数据格式异常');
+                    return false;
+                }
+                myChart.setOption({
+                    xAxis: { data: data.timestamps },
+                    series: [
+                        { data: data.cpu_values },
+                        { data: data.memory_values }
+                    ]
+                });
+                return true;
+            }
+
+            // ---------- 数据获取 ----------
+            function fetchAll() {
+                // 1. 获取趋势数据
+                fetch('/api/trend_all?limit=60')
+                    .then(res => {
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data.code === 0) {
+                            var ok = updateTrend(data.data);
+                            if (!ok) {
+                                document.getElementById('chartError').style.display = 'block';
+                            } else {
+                                document.getElementById('chartError').style.display = 'none';
+                            }
+                        } else {
+                            console.error('❌ 趋势API返回错误:', data.msg);
+                            document.getElementById('chartError').style.display = 'block';
+                        }
+                    })
+                    .catch(err => {
+                        console.error('❌ 趋势请求失败:', err);
+                        document.getElementById('chartError').style.display = 'block';
                     });
-                })
-                .catch(err => console.error('Trend API error:', err));
 
-            // 2. 获取当前聚合数据（卡片）
-            fetch('/api/metrics')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.code !== 0) return;
-                    const d = data.data;
-                    document.getElementById('cpuValue').textContent = d.cpu_percent + '%';
-                    document.getElementById('loadAvg').textContent = '--';
-                    document.getElementById('memValue').textContent = d.memory.percent + '%';
-                    document.getElementById('memAvailable').textContent = (d.memory.available / (1024 * 1024)).toFixed(0) + ' MB';
-                    document.getElementById('diskValue').textContent = d.disk.usage_percent + '%';
-                    document.getElementById('diskIO').textContent = `读:${(d.disk.read_bytes / 1024 / 1024).toFixed(1)}MB 写:${(d.disk.write_bytes / 1024 / 1024).toFixed(1)}MB`;
-                    document.getElementById('netValue').textContent = d.network.total_connections;
-                    document.getElementById('tcpCount').textContent = d.network.tcp_connections;
-                    document.getElementById('udpCount').textContent = d.network.udp_connections;
-                })
-                .catch(err => console.error('Metrics API error:', err));
-        }
+                // 2. 获取实时指标（卡片）
+                fetch('/api/metrics')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.code === 0) {
+                            updateCards(data.data);
+                        } else {
+                            console.warn('⚠️ 指标API返回错误:', data.msg);
+                        }
+                    })
+                    .catch(err => console.error('❌ 指标请求失败:', err));
+            }
 
-        // 首次加载
-        fetchAll();
+            // ---------- 首次加载和定时刷新 ----------
+            fetchAll();
+            setInterval(fetchAll, 5000);
 
-        // 每5秒轮询刷新
-        setInterval(fetchAll, 5000);
+            // ---------- 窗口大小自适应 ----------
+            window.addEventListener('resize', function() {
+                myChart.resize();
+            });
+
+            console.log('✅ dashboard 已初始化（含真实内存数据）');
+        })();
     </script>
 </body>
 </html>
