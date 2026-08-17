@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 client = openai.OpenAI(
     api_key=config.DEEPSEEK_API_KEY,
     base_url=config.DEEPSEEK_BASE_URL,
-    timeout=30.0,
+    timeout=90.0,
     max_retries=2
 )
 

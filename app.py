@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from cache import cache_get, cache_set, cache_delete, cache_delete_pattern
 from ai import generate_response
-from system_metrics import collect_all_sync, collect_all_sync_simple
+from system_metrics import collect_all_sync, collect_all_sync_simple, get_system_metrics
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -185,28 +185,25 @@ def api_advice():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== AI 诊断功能 ====================
+# ==================== AI 诊断功能（实时采集） ====================
 @app.route('/api/diagnose', methods=['POST'])
 def api_diagnose():
     try:
-        sql = """
-            SELECT cpu_percent, memory_percent, disk_usage, load_avg, timestamp
-            FROM system_metrics
-            ORDER BY id DESC LIMIT 1
-        """
-        row = execute_query(sql)
-        if not row:
-            return jsonify({"code": 1, "msg": "暂无监控数据，请先采集指标"}), 200
+        # 实时获取系统指标
+        metrics = get_system_metrics()
+        cpu = metrics['cpu_percent']
+        mem = metrics['memory_percent']
+        disk = metrics['disk_usage']
+        load = metrics['load_avg']
 
-        cpu, mem, disk, load, ts = row[0]
+        now = datetime.now()
         cpu_key = round(cpu)
         mem_key = round(mem)
         disk_key = round(disk)
-
-        now = datetime.now()
         window = int(now.timestamp() // 300)
         cache_key = f"diagnose:{cpu_key}_{mem_key}_{disk_key}_{window}"
 
+        # 尝试读取缓存
         cached = cache_get(cache_key)
         if cached:
             return jsonify({
@@ -218,17 +215,38 @@ def api_diagnose():
                 }
             })
 
+        # 调用 AI
         prompt = f"""
-        根据以下系统指标，请进行专业诊断并提出优化建议：
+        你是一位资深运维专家。请根据以下系统指标，进行专业诊断并提出优化建议：
+
         - CPU 使用率: {cpu}%
         - 内存使用率: {mem}%
         - 磁盘使用率: {disk}%
-        - 系统负载: {load}
-        请分析当前系统是否存在性能瓶颈，给出具体可行的优化措施。
+         - 系统负载: {load}
+
+        请按以下格式输出（每部分用空行分隔）：
+
+        1. **健康状态评估**：（正常/警告/危险）
+        2. **性能瓶颈分析**：（至少列出 2 个可能瓶颈）
+        3. **具体优化建议**：（至少 3 条，每条附上一条可执行的命令或配置调整）
+        4. **长期建议**：（例如扩容、架构调整等）
+
+        请用清晰的分点格式，语言专业且简洁。
         """
+        logger.info(f"诊断请求指标: CPU={cpu}%, MEM={mem}%, DISK={disk}%, LOAD={load}")
         diagnosis = generate_response(prompt, temperature=0.3)
 
+        # 如果 AI 返回空，则生成降级建议
+        if not diagnosis or not diagnosis.strip():
+            logger.warning("AI 返回空内容，使用降级建议")
+            diagnosis = (
+                f"⚠️ 当前系统状态：CPU {cpu}%，内存 {mem}%，磁盘 {disk}%，负载 {load}。\n"
+                "建议检查高负载进程，优化资源分配，或考虑扩容。具体请查看系统监控数据。"
+            )
+
+        # 缓存结果
         cache_set(cache_key, diagnosis, ttl=300)
+        logger.info(f"诊断结果长度: {len(diagnosis)}")
 
         return jsonify({
             "code": 0,
@@ -271,7 +289,7 @@ def api_analyze_log():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== CPU 趋势（原有） ====================
+# ==================== CPU 趋势 ====================
 @app.route('/api/cpu_trend', methods=['GET'])
 def api_cpu_trend():
     limit = request.args.get('limit', default=100, type=int)
@@ -297,7 +315,7 @@ def api_cpu_trend():
 def trend():
     return render_template('trend.html')
 
-# ==================== 趋势历史数据（用于仪表盘，含内存） ====================
+# ==================== 趋势历史数据（用于仪表盘） ====================
 @app.route('/api/trend_all', methods=['GET'])
 def api_trend_all():
     limit = request.args.get('limit', default=100, type=int)
@@ -325,7 +343,7 @@ def api_trend_all():
     except Exception as e:
         return jsonify({"code": 500, "msg": str(e)}), 500
 
-# ==================== 聚合监控（实时指标） ====================
+# ==================== 聚合监控 ====================
 @app.route('/api/metrics', methods=['GET'])
 def api_metrics():
     cache_key = 'metrics:latest'
